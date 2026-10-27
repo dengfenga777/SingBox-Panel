@@ -30,6 +30,24 @@ def command(*args):
     return subprocess.check_output(args, cwd=ROOT, text=True).strip()
 
 
+def registration_code(install_command):
+    # Separate shell operators from adjacent arguments without executing the
+    # installer. Plain shlex.split() includes the ';' after each branch's code.
+    lexer = shlex.shlex(install_command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    words = list(lexer)
+    codes = []
+    for index, word in enumerate(words):
+        if word != "--code":
+            continue
+        if index + 1 == len(words) or not re.fullmatch(r"[0-9a-f]+", words[index + 1]):
+            raise ValueError("install command has an invalid registration code")
+        codes.append(words[index + 1])
+    if not codes or len(set(codes)) != 1:
+        raise ValueError("install command must contain one consistent registration code")
+    return codes[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", default="singbox-panel:docker-test")
@@ -116,8 +134,7 @@ def main():
 
             server = api("/api/admin/servers", {"name": "Docker smoke node", "address": "198.51.100.10"})
             server_id = server["server"]["id"]
-            words = shlex.split(server["install_command"])
-            code = words[words.index("--code") + 1]
+            code = registration_code(server["install_command"])
             agent_token = request("/api/agent/register", urlencode({"code": code}).encode(),
                                   content_type="application/x-www-form-urlencoded", auth="")[0].decode().strip()
             check_agent_download(agent_token)

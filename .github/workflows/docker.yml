@@ -26,6 +26,7 @@ jobs:
         id: meta
         run: |
           python3 scripts/test-docker-metadata.py
+          python3 scripts/test-docker-smoke.py
           bash scripts/docker-metadata.sh
 
       # Automatic callers have already passed these checks. A manual run must
