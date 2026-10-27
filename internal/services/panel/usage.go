@@ -2,7 +2,6 @@ package panel
 
 import (
 	"log"
-	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -142,56 +141,4 @@ func subscriptionActivitySince(db *gorm.DB, since time.Time) (map[uint]subscript
 		out[row.UserID] = subscriptionActivity{Fetches: row.Fetches, IPs: row.IPs}
 	}
 	return out, nil
-}
-
-// listUserSubscriptionFetches returns one user's recent subscription fetches
-// and a per-address summary.
-func (a *App) listUserSubscriptionFetches(c *gin.Context) {
-	userID, ok := uintParam(c, "id")
-	if !ok {
-		return
-	}
-	var user model.User
-	if err := a.db.Select("id").First(&user, userID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
-		return
-	}
-	var fetches []model.SubscriptionFetch
-	if err := a.db.Where("user_id = ?", userID).Order("created_at DESC, id DESC").Limit(100).Find(&fetches).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	type ipSummary struct {
-		IP       string    `json:"ip"`
-		Client   string    `json:"client"`
-		Fetches  int64     `json:"fetches"`
-		LastSeen time.Time `json:"last_seen"`
-	}
-	var history []model.SubscriptionFetch
-	if err := a.db.Select("ip", "client", "created_at").Where("user_id = ?", userID).
-		Order("created_at DESC, id DESC").Limit(5000).Find(&history).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	byIP := map[string]*ipSummary{}
-	ips := []ipSummary{}
-	order := []string{}
-	for _, fetch := range history {
-		summary := byIP[fetch.IP]
-		if summary == nil {
-			// History is newest first, so the first row carries the latest client.
-			summary = &ipSummary{IP: fetch.IP, Client: fetch.Client, LastSeen: fetch.CreatedAt}
-			byIP[fetch.IP] = summary
-			order = append(order, fetch.IP)
-		}
-		summary.Fetches++
-	}
-	for _, ip := range order {
-		ips = append(ips, *byIP[ip])
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"fetches":        fetches,
-		"ips":            ips,
-		"retention_days": int(subscriptionFetchRetention / (24 * time.Hour)),
-	})
 }

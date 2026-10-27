@@ -323,11 +323,33 @@ export interface SubscriptionFetch {
 export interface SubscriptionIPSummary {
   ip: string
   client: string
+  format: string
   fetches: number
+  failures: number
+  client_count: number
   last_seen: string
 }
-export const getUserSubFetches = (id: number, signal?: AbortSignal) =>
-  http.get<{ fetches: SubscriptionFetch[]; ips: SubscriptionIPSummary[]; retention_days: number }>(`/api/admin/users/${id}/sub-fetches`, { signal }).then((r) => r.data)
+export interface SubscriptionHistorySummary {
+  ips: SubscriptionIPSummary[]
+  total: number
+  until: string
+}
+export interface SubscriptionIPLocation {
+  ip: string
+  status: 'ok' | 'unknown' | 'private' | 'error'
+  country?: string
+  country_code?: string
+  region?: string
+  city?: string
+  organization?: string
+  asn?: number
+}
+export const getUserSubFetches = (id: number, range: UserTrafficRange = '30d', signal?: AbortSignal) =>
+  http.get<SubscriptionHistorySummary>(`/api/admin/users/${id}/sub-fetches`, { params: { range }, signal }).then((r) => r.data)
+export const getUserSubFetchDetails = (id: number, params: { ip: string; range: UserTrafficRange; until: string; before?: string; limit?: number }, signal?: AbortSignal) =>
+  http.get<{ fetches: SubscriptionFetch[]; next_cursor: string; until: string }>(`/api/admin/users/${id}/sub-fetches`, { params, signal }).then((r) => r.data)
+export const getUserSubFetchLocation = (id: number, ip: string, signal?: AbortSignal) =>
+  http.get<SubscriptionIPLocation>(`/api/admin/users/${id}/sub-fetch-location`, { params: { ip }, signal }).then((r) => r.data)
 export const getUserTraffic = (id: number, range: UserTrafficRange = '24h', signal?: AbortSignal) =>
   http.get<UserTrafficSeries>(`/api/admin/users/${id}/traffic`, { params: { range }, signal }).then((r) => r.data)
 

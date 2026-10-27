@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Form, Input, Modal, Segmented, Table, message } from '../../../ui'
-import dayjs from 'dayjs'
-import { createUser, errMsg, getUserSubFetches, getUserTraffic, updateUser } from '../../../api'
-import type { SubscriptionFetch } from '../../../api'
+import { createUser, errMsg, getUserTraffic, updateUser } from '../../../api'
 import type { User, UserTrafficInbound, UserTrafficRange, UserTrafficSeries } from '../../../types'
-import { formatBytes, relativeTime } from '../../../util'
+import { formatBytes } from '../../../util'
 import { ProtocolTag } from '../servers/ServerTraffic'
 import { RequestState } from '../../../components/RequestState'
-import { Status } from '../../../ui/Page'
-import { MODAL_LG, MODAL_SM } from '../../../ui/modal'
+import { MODAL_SM } from '../../../ui/modal'
+import { SubscriptionFetchHistory } from './SubscriptionFetchHistory'
 
 export function UserAccountDialog({ user, onClose, onSaved }: {
   user?: User
@@ -48,20 +46,6 @@ export function UserAccountDialog({ user, onClose, onSaved }: {
       </Form.Item>
     </Form>
   </Modal>
-}
-
-function SubscriptionSummary({ user }: { user: User }) {
-  return (
-    <div className="um-mini-stats">
-      <div>
-        <span>最近拉取</span>
-        <b title={user.last_sub_at ? new Date(user.last_sub_at).toLocaleString('zh-CN') : undefined}>{user.last_sub_at ? relativeTime(user.last_sub_at) : '从未'}</b>
-      </div>
-      <div><span>客户端</span><b>{user.last_sub_client || '—'}</b></div>
-      <div><span>24 小时</span><b className="mono">{user.sub_fetches_24h == null ? '—' : `${user.sub_fetches_24h} 次`}</b></div>
-      <div><span>累计</span><b className="mono">{user.sub_fetch_count ?? 0} 次</b></div>
-    </div>
-  )
 }
 
 const USER_TRAFFIC_RANGES: { label: string; value: UserTrafficRange }[] = [
@@ -133,60 +117,12 @@ function UserTraffic({ user }: { user: User }) {
 }
 
 export function SubscriptionHistory({ user, open, onClose }: { user: User | null; open: boolean; onClose: () => void }) {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [fetches, setFetches] = useState<SubscriptionFetch[]>([])
-  const [retention, setRetention] = useState(30)
-  const [loaded, setLoaded] = useState(false)
-  const [reloadKey, setReloadKey] = useState(0)
-  useEffect(() => {
-    if (!open || !user) return
-    const controller = new AbortController()
-    setLoading(true)
-    setError(null)
-    setLoaded(false)
-    setFetches([])
-    getUserSubFetches(user.id, controller.signal)
-      .then((d) => {
-        if (controller.signal.aborted) return
-        setFetches(d.fetches)
-        setRetention(d.retention_days)
-        setLoaded(true)
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted) setError(errMsg(e))
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false)
-      })
-    return () => controller.abort()
-  }, [open, user?.id, reloadKey])
   return (
-    <Modal title={user ? `${user.email} · 使用记录` : ''} open={open} onCancel={onClose} footer={null} width={MODAL_LG} className="um-modal">
-      {open && user && <UserTraffic key={user.id} user={user} />}
-      <section className="um-group">
-        <header className="um-group-head">
-          <h4>订阅拉取</h4>
-          <span className="faint">保留 {retention} 天</span>
-        </header>
-        {user && <SubscriptionSummary user={user} />}
-        <RequestState loading={loading} error={error} hasData={loaded} onRetry={() => setReloadKey((k) => k + 1)}>
-          <Table<SubscriptionFetch>
-            size="small"
-            rowKey="id"
-            dataSource={fetches}
-            scroll={{ x: 590, y: 260 }}
-            locale={{ emptyText: '暂无记录' }}
-            columns={[
-              { title: '时间', dataIndex: 'created_at', width: 170, render: (v: string) => <span className="mono">{dayjs(v).format('YYYY-MM-DD HH:mm:ss')}</span> },
-              { title: 'IP', dataIndex: 'ip', width: 150, render: (v: string) => <span className="mono">{v}</span> },
-              { title: '客户端', dataIndex: 'client', width: 110, render: (v: string, r) => <span title={r.user_agent}>{v}</span> },
-              { title: '格式', dataIndex: 'format', width: 90, render: (v: string) => <span className="muted">{v}</span> },
-              { title: '结果', dataIndex: 'status', width: 80, render: (v: number) => (v === 200 ? <Status tone="ok">成功</Status> : <Status tone="error">{v}</Status>) },
-            ]}
-          />
-        </RequestState>
-      </section>
+    <Modal title={user ? `${user.email} · 使用记录` : ''} open={open} onCancel={onClose} footer={null} width={960} className="um-modal um-history-modal">
+      {open && user && <>
+        <UserTraffic key={`traffic:${user.id}`} user={user} />
+        <SubscriptionFetchHistory key={user.id} userID={user.id} />
+      </>}
     </Modal>
   )
 }

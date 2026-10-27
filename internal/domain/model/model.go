@@ -360,14 +360,14 @@ func (TrafficUserHourly) TableName() string { return "traffic_user_hourly" }
 // SubscriptionFetch is one subscription download, kept for a limited window
 // so administrators can see which clients and addresses use an account.
 type SubscriptionFetch struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	UserID    uint      `gorm:"not null;index:idx_sub_fetch_user_time,priority:1" json:"user_id"`
-	IP        string    `gorm:"size:64" json:"ip"`
+	ID        uint      `gorm:"primaryKey;index:idx_sub_fetch_user_ip_time,priority:4" json:"id"`
+	UserID    uint      `gorm:"not null;index:idx_sub_fetch_user_time,priority:1;index:idx_sub_fetch_user_ip_time,priority:1" json:"user_id"`
+	IP        string    `gorm:"size:64;index:idx_sub_fetch_user_ip_time,priority:2" json:"ip"`
 	Client    string    `gorm:"size:32" json:"client"`
 	Format    string    `gorm:"size:16" json:"format"`
 	UserAgent string    `gorm:"size:255" json:"user_agent"`
 	Status    int       `json:"status"`
-	CreatedAt time.Time `gorm:"index;index:idx_sub_fetch_user_time,priority:2" json:"created_at"`
+	CreatedAt time.Time `gorm:"index;index:idx_sub_fetch_user_time,priority:2;index:idx_sub_fetch_user_ip_time,priority:3" json:"created_at"`
 }
 
 // SchemaMigration records one successfully-applied database schema change.

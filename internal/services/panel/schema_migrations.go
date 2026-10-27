@@ -348,6 +348,11 @@ var applicationMigrations = []schemaMigration{
 		name:    "acknowledged timestamped traffic reports",
 		up:      func(tx *gorm.DB) error { return tx.AutoMigrate(&model.TrafficReportCursor{}) },
 	},
+	{
+		version: 27,
+		name:    "subscription fetch IP history index",
+		up:      func(tx *gorm.DB) error { return tx.AutoMigrate(&model.SubscriptionFetch{}) },
+	},
 }
 
 // migrationReplaySafe records whether an interrupted attempt of each migration
@@ -393,6 +398,7 @@ var migrationReplaySafe = map[uint]bool{
 	24: true,  // AutoMigrate
 	25: true,  // AutoMigrate plus insert-only legacy traffic identity bindings
 	26: true,  // AutoMigrate of report receipts
+	27: true,  // AutoMigrate of subscription history index
 }
 
 // runSchemaMigrations applies every pending migration in order. If any

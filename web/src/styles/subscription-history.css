@@ -1,0 +1,86 @@
+/* Subscription fetch history, shared desktop/mobile IP groups. */
+.sh-section-meta { font-size: 12px; color: var(--console-muted); font-variant-numeric: tabular-nums; }
+.sh-section-meta > span { padding: 0 6px; color: var(--console-faint); }
+.sh-history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.sh-history-search { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.sh-history-search input { max-width: 300px; height: 32px; font-size: 12px; box-shadow: none; }
+.sh-sort-control { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--console-muted); margin-left: auto; flex-shrink: 0; }
+.sh-sort-trigger.ui-btn { height: 32px; padding-inline: 6px; font-size: 12px; color: var(--console-ink); }
+.sh-sort-trigger svg { transition: transform .15s ease; }
+.sh-sort-trigger[data-state='open'] svg { transform: rotate(180deg); }
+.sh-sort-menu { min-width: 144px; }
+.sh-ip-list { border: 1px solid var(--console-border); border-radius: 8px; overflow: hidden; }
+.sh-ip-table-head, .sh-ip-row { display: grid; grid-template-columns: minmax(144px, 1.1fr) minmax(178px, 1.5fr) minmax(104px, .95fr) 88px 72px 18px; gap: 12px; align-items: center; padding: 12px 14px; }
+.sh-ip-table-head { background: var(--console-surface); color: var(--console-muted); font-size: 11.5px; padding-block: 9px; }
+.sh-ip-table-head > span:nth-child(5) { text-align: right; }
+.sh-ip-entry { border-top: 1px solid var(--console-border); }
+.sh-ip-row { width: 100%; min-width: 0; background: var(--console-container); text-align: left; border: 0; color: var(--console-ink); font: inherit; font-size: 12.5px; cursor: pointer; transition: background .15s ease; }
+.sh-ip-row:hover, .sh-ip-row[data-state='open'] { background: var(--console-surface); }
+.sh-ip-row:focus-visible { outline: 2px solid var(--console-focus); outline-offset: -2px; }
+.sh-ip-row > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.sh-ip-row small { display: block; color: var(--console-faint); font-size: 11px; font-weight: 400; line-height: 1.4; }
+.sh-ip-address code { font-family: var(--app-mono); font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.sh-ip-location > span { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.sh-ip-location > span > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-ip-location svg { flex-shrink: 0; color: var(--console-faint); }
+.sh-ip-location > small, .sh-ip-client > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-ip-count { text-align: right; font-variant-numeric: tabular-nums; }
+.sh-ip-count strong { font-family: var(--app-mono); font-weight: 600; font-size: 14px; }
+.sh-ip-count strong small { display: inline; font-family: var(--app-font); }
+.sh-row-chevron { color: var(--console-faint); transition: transform .16s ease; }
+.sh-ip-row[data-state='open'] .sh-row-chevron { transform: rotate(180deg); }
+.sh-ip-row .sh-fetch-error, .sh-fetch-error { color: var(--console-error-text); }
+.sh-ip-details { padding: 14px 20px 12px; background: var(--console-surface); border-top: 1px solid var(--console-border); }
+.sh-details-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; margin-bottom: 10px; }
+.sh-details-heading > span:first-child { display: flex; gap: 6px; align-items: center; }
+.sh-detail-table-wrap { overflow: auto; }
+.sh-detail-table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.sh-detail-table th { color: var(--console-faint); font-size: 11px; font-weight: 400; }
+.sh-detail-table th, .sh-detail-table td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--console-border); }
+.sh-detail-table th:last-child, .sh-detail-table td:last-child { text-align: right; padding-right: 0; }
+.sh-detail-table td:first-child { font-family: var(--app-mono); font-size: 11px; }
+.sh-detail-table tr:last-child td { border-bottom: 0; }
+.sh-more-records { margin-top: 6px; }
+.sh-empty-state { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 32px 12px; color: var(--console-muted); font-size: 12px; }
+.sh-empty-state strong { color: var(--console-ink); font-weight: 500; }
+.sh-heading { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.um-history-modal .um-group:first-child .um-group-head { justify-content: flex-start; }
+@media (max-width: 850px) {
+  .sh-history-toolbar { row-gap: 10px; }
+  .sh-history-search { gap: 8px; }
+  .sh-history-search input { font-size: 16px; height: 36px; }
+  .sh-history-search input::placeholder { font-size: 12px; }
+  .sh-sort-control { font-size: 11px; gap: 2px; }
+  .sh-sort-trigger.ui-btn { height: 36px; padding-inline: 4px; }
+  .sh-sort-menu [role='menuitemradio'] { min-height: 40px; }
+  .sh-ip-table-head { display: none; }
+  .sh-ip-table-head + .sh-ip-entry { border-top: 0; }
+  .sh-ip-row { position: relative; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'address count' 'location location' 'client time'; gap: 8px 12px; padding: 14px; }
+  .sh-ip-address { grid-area: address; }
+  .sh-ip-address code { font-size: 13px; }
+  .sh-ip-address small { display: none; }
+  .sh-ip-location { grid-area: location; padding-right: 20px; }
+  .sh-ip-location > span { font-size: 12px; }
+  .sh-ip-location small { padding-left: 20px; }
+  .sh-ip-client { grid-area: client; flex-direction: row !important; align-items: center; gap: 8px !important; color: var(--console-muted); font-size: 11px; }
+  .sh-ip-client small { display: none; }
+  .sh-ip-time { grid-area: time; color: var(--console-faint); font-size: 11px; text-align: right; }
+  .sh-ip-time small { display: none; }
+  .sh-ip-count { grid-area: count; padding-right: 19px; }
+  .sh-ip-count > small:not(.sh-fetch-error) { display: none; }
+  .sh-ip-count strong { font-size: 14px; }
+  .sh-row-chevron { position: absolute; right: 10px; top: 17px; width: 13px; }
+  .sh-ip-details { padding: 12px; }
+  .sh-detail-table { white-space: normal; }
+  .sh-detail-table thead { display: none; }
+  .sh-detail-table tbody, .sh-detail-table tr { display: block; }
+  .sh-detail-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 10px; padding: 10px 0; border-bottom: 1px solid var(--console-border); }
+  .sh-detail-table tr:last-child { border: 0; }
+  .sh-detail-table td, .sh-detail-table td:last-child { padding: 0; border: 0; }
+  .sh-detail-table td:first-child { grid-column: 1; grid-row: 1; font-size: 10.5px; }
+  .sh-detail-table td:nth-child(2) { grid-column: 1; grid-row: 2; color: var(--console-muted); font-size: 11px; }
+  .sh-detail-table td:nth-child(3) { grid-column: 2; grid-row: 2; text-align: right; color: var(--console-faint); font-size: 11px; }
+  .sh-detail-table td:last-child { grid-column: 2; grid-row: 1; font-size: 11px; }
+  .sh-heading { gap: 5px; flex-direction: column; align-items: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) { .sh-row-chevron, .sh-ip-row, .sh-sort-trigger svg { transition: none; } }

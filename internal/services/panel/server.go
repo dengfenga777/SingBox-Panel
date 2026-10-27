@@ -58,6 +58,8 @@ type App struct {
 	logSessionLocks   keyedMutex[uint]
 	serverOperations  *keyedMutex[uint]
 	userAccessMu      sync.Mutex
+	ipLocationsOnce   sync.Once
+	ipLocations       *ipLocationService
 }
 
 // SetVersion records the running panel version (set from main via ldflags) so
@@ -198,6 +200,7 @@ func (a *App) routes() *gin.Engine {
 		admin.PUT("/users/:id", a.updateUser)
 		admin.GET("/users/:id/access", a.getUserAccess)
 		admin.GET("/users/:id/sub-fetches", a.listUserSubscriptionFetches)
+		admin.GET("/users/:id/sub-fetch-location", a.userSubscriptionIPLocation)
 		admin.GET("/users/:id/traffic", a.userTraffic)
 		admin.PUT("/users/:id/access", a.updateUserAccess)
 		admin.DELETE("/users/:id", a.deleteUser)
