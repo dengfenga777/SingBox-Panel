@@ -14,6 +14,8 @@ curl -fsSL https://github.com/hann0w0/SingBox-Panel/releases/latest/download/ins
 
 安装脚本支持非交互安装（`--base-url`、`--admin`、`--password`、`--non-interactive`），用 `--version vX.Y.Z` 可指定版本。安装完成后在面板中创建服务器，并在目标 VPS 上执行该节点详情页生成的 Agent 安装命令。
 
+节点 Agent 支持 Linux amd64/arm64 的 systemd 节点，也支持 Alpine Linux 的 OpenRC。Alpine 节点可直接执行面板生成的命令；脚本会使用 `wget`/`curl` 获取安装包，并为 Agent、sing-box 服务及面板日志读取配置 OpenRC。
+
 ### Docker 部署
 
 Docker 仅运行控制面板，各节点 VPS 上的 Agent 和 sing-box 仍以原生方式运行。提供以下两种部署方式（二选一），直接拉取官方镜像即可使用。
@@ -100,7 +102,7 @@ docker compose down
 
 ## 工作模式
 
-面板通过 HTTPS 提供管理界面，节点上的 Agent 主动以 WSS 连接面板，节点无需开放额外管理端口，也不提供任意 Shell 执行能力。Agent 以官方方式安装 sing-box，下发配置前执行 `sing-box check`，程序与配置更新采用校验、原子替换与失败回滚。
+面板通过 HTTPS 提供管理界面，节点上的 Agent 主动以 WSS 连接面板，节点无需开放额外管理端口，也不提供任意 Shell 执行能力。Agent 以官方方式安装 sing-box，下发配置前执行 `sing-box check`，程序与配置更新采用校验、原子替换与失败回滚。systemd 节点从 journal 读取 sing-box 日志；Alpine/OpenRC 节点的服务输出写入 `/var/log/sing-box.log`，Agent 日志写入 `/var/log/singbox-panel-agent.log`，应纳入节点现有的日志轮转策略。
 
 面板支持两种配置模式：管理模式根据面板中的节点、协议与路由设置生成配置；原始配置模式保存并下发完整 JSON，适合面板暂未结构化支持的 sing-box 配置项。
 

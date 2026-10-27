@@ -280,7 +280,7 @@ function formatUpdatedAt(value: number | null) {
   return new Date(value).toLocaleTimeString('zh-CN', { hour12: false })
 }
 
-// Logs renders one node's sing-box journal. With serverId fixed (server
+// Logs renders one node's native sing-box log stream. With serverId fixed (server
 // detail tab) the node selector is hidden.
 export default function Logs({ serverId }: { serverId?: number } = {}) {
   const [servers, setServers] = useState<Server[]>([])
@@ -396,7 +396,7 @@ export default function Logs({ serverId }: { serverId?: number } = {}) {
   }, [])
 
   // SSE live log streaming: connect to the same SSE endpoint and filter for
-  // kind === "log" messages. The agent-side journalctl -f is started/stopped
+  // kind === "log" messages. The agent-side native log follower is started/stopped
   // via the streamLogs API call below.
   const liveUrl = sid ? `/api/admin/servers/${sid}/traffic/live` : ''
   const onSSEMessage = useCallback((msg: SSEMessage) => {
@@ -404,7 +404,7 @@ export default function Logs({ serverId }: { serverId?: number } = {}) {
     const logEvt = msg.data as { level: string; msg: string }
     pendingLiveLinesRef.current.push(...logEvt.msg.split('\n').filter((raw) => raw.trim().length > 0))
     if (liveFlushTimerRef.current) return
-    // Batch bursts from journalctl so parsing/filtering/rendering happens at
+    // Batch bursts from the native log follower so parsing/filtering/rendering happens at
     // most ten times per second instead of once per log line.
     liveFlushTimerRef.current = setTimeout(() => {
       liveFlushTimerRef.current = null
@@ -435,7 +435,7 @@ export default function Logs({ serverId }: { serverId?: number } = {}) {
   }, [])
   const { connected: sseConnected } = useSSE(liveUrl, live && !!sid, onSSEMessage)
 
-  // Start one exact server's journalctl stream and always stop that same
+  // Start one exact server's native log stream and always stop that same
   // server on toggle, server switch, or page unmount. If the start request
   // finishes after cleanup, send a second stop so request reordering cannot
   // leave an orphan stream running on the agent.

@@ -168,3 +168,73 @@ func TestSingboxInstallerUsesCommandDeadline(t *testing.T) {
 		t.Fatalf("cancellation not propagated: steps=%d error=%v", steps, err)
 	}
 }
+
+func TestSingboxInstallerPreparesHostServiceAfterVerification(t *testing.T) {
+	prepared := 0
+	installer := singboxInstaller{
+		run: func(_ context.Context, command string, args ...string) (string, error) {
+			if command == "curl" {
+				return "", os.WriteFile(args[2], []byte("#!/bin/sh\nexit 0\n"), 0o600)
+			}
+			return "", nil
+		},
+		detectVersion: func(context.Context) (bool, string) { return true, "1.14.0" },
+		prepareService: func(context.Context) error {
+			prepared++
+			return nil
+		},
+	}
+	if _, err := installer.install(context.Background(), protocol.ChannelStable, "", "script"); err != nil {
+		t.Fatal(err)
+	}
+	if prepared != 1 {
+		t.Fatalf("service preparation count = %d, want 1", prepared)
+	}
+}
+
+func TestSingboxInstallerSurfacesServicePreparationFailure(t *testing.T) {
+	failure := errors.New("openrc unavailable")
+	installer := singboxInstaller{
+		run: func(_ context.Context, command string, args ...string) (string, error) {
+			if command == "curl" {
+				return "", os.WriteFile(args[2], []byte("#!/bin/sh\nexit 0\n"), 0o600)
+			}
+			return "", nil
+		},
+		detectVersion: func(context.Context) (bool, string) { return true, "1.14.0" },
+		prepareService: func(context.Context) error {
+			return failure
+		},
+	}
+	_, err := installer.install(context.Background(), protocol.ChannelStable, "", "script")
+	if !errors.Is(err, failure) {
+		t.Fatalf("service preparation failure = %v", err)
+	}
+}
+
+func TestPrepareSingboxServiceEnablesBootStart(t *testing.T) {
+	enabled := false
+	manager := systemdServiceManager{run: func(_ context.Context, command string, args ...string) (string, error) {
+		if command == "systemctl" && len(args) > 0 {
+			switch args[0] {
+			case "daemon-reload":
+				return "", nil
+			case "is-enabled":
+				if enabled {
+					return "enabled", nil
+				}
+				return "disabled", errors.New("disabled")
+			case "enable":
+				enabled = true
+				return "", nil
+			}
+		}
+		return "", nil
+	}}
+	if err := prepareSingboxServiceWithManager(context.Background(), manager); err != nil {
+		t.Fatal(err)
+	}
+	if !enabled {
+		t.Fatal("sing-box service was not enabled at boot")
+	}
+}

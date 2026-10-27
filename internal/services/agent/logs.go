@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -13,9 +12,9 @@ const maxLogLines = 1000
 
 // ReadLogs returns the most recent sing-box service logs from this node.
 //
-// journalctl is the source of truth for a systemd unit (the official install
-// logs to the journal, not to a file). It is read-only and the unit name is
-// fixed, so nothing here lets the panel run arbitrary commands.
+// The host init system selects either journalctl or the OpenRC-managed log
+// file. Both commands are fixed and read-only, so the panel cannot run arbitrary
+// commands through this path.
 func ReadLogs(ctx context.Context, lines int) (string, error) {
 	if lines <= 0 {
 		lines = 200
@@ -26,19 +25,21 @@ func ReadLogs(ctx context.Context, lines int) (string, error) {
 	runCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	// 优先尝试读取 journalctl 标准日志
-	out, err := run(runCtx, "journalctl",
-		"-u", ServiceName,
-		"-n", strconv.Itoa(lines),
-		"--no-pager",
-	)
-	if err == nil && strings.TrimSpace(out) != "" && !strings.Contains(out, "-- No entries --") {
+	manager, err := currentServiceManager()
+	if err != nil {
+		return "", err
+	}
+	command, args := manager.LogCommand(lines, false)
+	out, err := run(runCtx, command, args...)
+	if err == nil && strings.TrimSpace(out) != "" &&
+		!strings.Contains(out, "-- No entries --") {
 		return out, nil
 	}
 
-	// 降级使用 systemctl status 获取包含 PID、内存及最新日志的列表
-	statusOut, statusErr := run(runCtx, "systemctl", "status", ServiceName, "-n", strconv.Itoa(lines), "--no-pager")
-	if statusErr == nil && strings.TrimSpace(statusOut) != "" {
+	// If the native log source is unavailable, return the service status so the
+	// operator at least sees whether sing-box is running and why it exited.
+	statusOut := manager.Status(runCtx)
+	if strings.TrimSpace(statusOut) != "" {
 		return statusOut, nil
 	}
 

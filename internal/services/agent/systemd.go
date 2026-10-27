@@ -3,45 +3,39 @@ package agent
 import (
 	"context"
 	"fmt"
-	"strings"
 )
 
-// allowedServiceActions maps 1:1 to `systemctl <action> sing-box`.
+const systemdUnitPath = "/org/freedesktop/systemd1/unit/sing_2dbox_2eservice"
+
+// allowedServiceActions is the common command whitelist for systemd and OpenRC.
 var allowedServiceActions = map[string]bool{
 	"start": true, "stop": true, "restart": true,
 	"reload": true, "enable": true, "disable": true,
 }
 
-// ServiceAction runs a whitelisted systemctl action against the official unit.
+// ServiceAction runs a whitelisted service action through the host init system.
 func ServiceAction(ctx context.Context, action string) (string, error) {
+	manager, err := currentServiceManager()
+	if err != nil {
+		return "", err
+	}
 	if action == "status" {
-		return serviceStatusText(ctx), nil
+		return manager.Status(ctx), nil
 	}
 	if !allowedServiceActions[action] {
 		return "", fmt.Errorf("disallowed service action %q", action)
 	}
-	// Pick up a unit file rewritten by an install/upgrade, so a restart really
-	// starts the current definition instead of a stale cached one.
-	if action == "start" || action == "restart" {
-		_, _ = run(ctx, "systemctl", "daemon-reload")
-	}
-	return run(ctx, "systemctl", action, ServiceName)
+	return manager.Action(ctx, action)
 }
 
-// ServiceActive reports whether sing-box.service is active.
+// ServiceActive reports whether sing-box is active under the host init system.
 func ServiceActive(ctx context.Context) bool {
-	out, _ := run(ctx, "systemctl", "is-active", ServiceName)
-	return strings.TrimSpace(out) == "active"
+	manager, err := currentServiceManager()
+	return err == nil && manager.Active(ctx)
 }
 
-// ServiceEnabled reports whether sing-box.service is enabled at boot.
+// ServiceEnabled reports whether sing-box is enabled at boot.
 func ServiceEnabled(ctx context.Context) bool {
-	out, _ := run(ctx, "systemctl", "is-enabled", ServiceName)
-	s := strings.TrimSpace(out)
-	return s == "enabled" || s == "enabled-runtime" || s == "alias"
-}
-
-func serviceStatusText(ctx context.Context) string {
-	out, _ := run(ctx, "systemctl", "status", ServiceName, "--no-pager", "-l")
-	return out
+	manager, err := currentServiceManager()
+	return err == nil && manager.Enabled(ctx)
 }

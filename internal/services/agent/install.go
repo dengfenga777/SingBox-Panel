@@ -11,7 +11,7 @@ import (
 	"github.com/hann0w0/singbox-panel/internal/domain/protocol"
 )
 
-// Official sing-box paths and systemd unit name.
+// Official sing-box paths and service name.
 const (
 	SingboxBinary = "/usr/bin/sing-box"
 	ConfigDir     = "/etc/sing-box"
@@ -49,13 +49,18 @@ var versionRe = regexp.MustCompile(`^[0-9][0-9A-Za-z.\-]*$`)
 // (script | apt | dnf) and channel (stable | beta). It only ever invokes the
 // official installer/repositories documented by upstream.
 func InstallSingbox(ctx context.Context, channel, version, method string) (string, error) {
-	installer := singboxInstaller{run: run, detectVersion: DetectVersion}
+	installer := singboxInstaller{
+		run:            run,
+		detectVersion:  DetectVersion,
+		prepareService: prepareSingboxService,
+	}
 	return installer.install(ctx, channel, version, method)
 }
 
 type singboxInstaller struct {
-	run           func(context.Context, string, ...string) (string, error)
-	detectVersion func(context.Context) (bool, string)
+	run            commandRunner
+	detectVersion  func(context.Context) (bool, string)
+	prepareService func(context.Context) error
 }
 
 func (i singboxInstaller) install(ctx context.Context, channel, version, method string) (string, error) {
@@ -99,7 +104,32 @@ func (i singboxInstaller) install(ctx context.Context, channel, version, method 
 	if version != "" && actualVersion != version {
 		return output, fmt.Errorf("sing-box version mismatch: requested %s, installed %s", version, actualVersion)
 	}
+	if i.prepareService != nil {
+		if err := i.prepareService(ctx); err != nil {
+			return output, fmt.Errorf("prepare sing-box service: %w", err)
+		}
+	}
 	return output, nil
+}
+
+func prepareSingboxService(ctx context.Context) error {
+	manager, err := currentServiceManager()
+	if err != nil {
+		return err
+	}
+	return prepareSingboxServiceWithManager(ctx, manager)
+}
+
+func prepareSingboxServiceWithManager(ctx context.Context, manager serviceManager) error {
+	if out, err := manager.Prepare(ctx); err != nil {
+		return fmt.Errorf("prepare service: %w: %s", err, out)
+	}
+	if !manager.Enabled(ctx) {
+		if out, err := manager.SetEnabled(ctx, true); err != nil {
+			return fmt.Errorf("enable service at boot: %w: %s", err, out)
+		}
+	}
+	return nil
 }
 
 func (i singboxInstaller) installScript(ctx context.Context, channel, version string) (string, error) {

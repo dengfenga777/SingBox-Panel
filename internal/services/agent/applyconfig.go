@@ -10,17 +10,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	tmpConfigFile   = ConfigDir + "/.config.json.tmp"
-	bakConfigFile   = ConfigDir + "/config.json.bak"
-	origConfigFile  = ConfigDir + "/config.json.orig"
-	maxConfigSize   = 16 << 20
-	systemdUnitPath = "/org/freedesktop/systemd1/unit/sing_2dbox_2eservice"
+	tmpConfigFile  = ConfigDir + "/.config.json.tmp"
+	bakConfigFile  = ConfigDir + "/config.json.bak"
+	origConfigFile = ConfigDir + "/config.json.orig"
+	maxConfigSize  = 16 << 20
 )
 
 // preserveOriginal copies the very first (pre-panel) config to config.json.orig
@@ -49,6 +47,10 @@ func ApplyConfig(ctx context.Context, configBytes []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	manager, err := currentServiceManager()
+	if err != nil {
+		return "", err
+	}
 	bin, err := DetectVersionInstalled()
 	if err != nil {
 		return "", fmt.Errorf("sing-box not installed at %s", SingboxBinary)
@@ -72,8 +74,8 @@ func ApplyConfig(ctx context.Context, configBytes []byte) (string, error) {
 	// must also have started after this file was written and explicitly load the
 	// managed config path. Otherwise continue below and perform a real restart.
 	if existing, err := readConfigFile(); err == nil &&
-		bytes.Equal(existing, configBytes) && ServiceActive(ctx) {
-		if _, err := currentServiceConfigEvidence(ctx, expectedHash); err == nil {
+		bytes.Equal(existing, configBytes) && manager.Active(ctx) {
+		if _, err := currentServiceConfigEvidence(ctx, manager, expectedHash); err == nil {
 			return "config unchanged; running sing-box verified", nil
 		}
 	}
@@ -94,7 +96,7 @@ func ApplyConfig(ctx context.Context, configBytes []byte) (string, error) {
 		}
 		return out, fmt.Errorf("sing-box check failed: %w", err)
 	}
-	previousState := serviceState{active: ServiceActive(ctx), enabled: ServiceEnabled(ctx)}
+	previousState := serviceState{active: manager.Active(ctx), enabled: manager.Enabled(ctx)}
 	if err := ctx.Err(); err != nil {
 		_ = os.Remove(tmpConfigFile)
 		return "", fmt.Errorf("inspect service state: %w", err)
@@ -134,7 +136,7 @@ func ApplyConfig(ctx context.Context, configBytes []byte) (string, error) {
 		return "", fmt.Errorf("install config: %w", err)
 	}
 	if err := os.Chmod(ConfigFile, 0o600); err != nil {
-		if rollbackErr := rollbackApply(hadOld, moved, previousState); rollbackErr != nil {
+		if rollbackErr := rollbackApply(manager, hadOld, moved, previousState); rollbackErr != nil {
 			return "", fmt.Errorf("set config permissions: %w; rollback failed: %v", err, rollbackErr)
 		}
 		return "", fmt.Errorf("set config permissions: %w", err)
@@ -142,30 +144,30 @@ func ApplyConfig(ctx context.Context, configBytes []byte) (string, error) {
 
 	// 5) apply: restart if running, otherwise start without changing whether the
 	// service is enabled at boot. Applying a config must not override an
-	// operator's deliberate `systemctl disable sing-box` choice.
+	// operator's deliberate decision to disable sing-box at boot.
 	//
-	// Always restart, never `systemctl reload`: sing-box's SIGHUP handling does
+	// Always restart, never reload: sing-box's SIGHUP handling does
 	// not reliably re-read the config — the command exits 0 while the process
 	// keeps serving the OLD config, so a push would silently not take effect.
 	// A restart costs a brief connection drop but is guaranteed to apply.
 	var applyErr error
-	if out, err := run(ctx, "systemctl", "daemon-reload"); err != nil {
-		applyErr = fmt.Errorf("systemctl daemon-reload: %w: %s", err, out)
+	if out, err := manager.Prepare(ctx); err != nil {
+		applyErr = fmt.Errorf("prepare %s service: %w: %s", manager.Kind(), err, out)
 	}
 	if applyErr == nil {
 		action := configApplyServiceAction(previousState)
-		if out, err := run(ctx, "systemctl", action, ServiceName); err != nil {
-			applyErr = fmt.Errorf("systemctl %s: %w: %s", action, err, out)
+		if out, err := manager.Action(ctx, action); err != nil {
+			applyErr = fmt.Errorf("%s %s: %w: %s", manager.Kind(), action, err, out)
 		}
 	}
 
 	// 6) verify deterministic evidence that the installed config is the one
 	// loaded by this service run; roll back if any part cannot be proven.
 	if applyErr == nil {
-		applyErr = waitServiceStable(ctx, 3*time.Second, expectedHash)
+		applyErr = waitServiceStable(ctx, manager, 3*time.Second, expectedHash)
 	}
 	if applyErr != nil {
-		if rollbackErr := rollbackApply(hadOld, moved, previousState); rollbackErr != nil {
+		if rollbackErr := rollbackApply(manager, hadOld, moved, previousState); rollbackErr != nil {
 			return "", fmt.Errorf("%w; rollback failed: %v", applyErr, rollbackErr)
 		}
 		return "", applyErr
@@ -237,30 +239,32 @@ type serviceConfigEvidence struct {
 	startedAt time.Time
 }
 
-func waitServiceStable(ctx context.Context, stableFor time.Duration, expectedHash [sha256.Size]byte) error {
+func waitServiceStable(ctx context.Context, manager serviceManager, stableFor time.Duration, expectedHash [sha256.Size]byte) error {
 	deadline := time.NewTimer(stableFor)
 	defer deadline.Stop()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	var applied *serviceConfigEvidence
 	for {
-		current, err := currentServiceConfigEvidence(ctx, expectedHash)
-		if err != nil {
-			return err
-		}
-		if applied == nil {
-			applied = &current
-		} else if current.pid != applied.pid || !current.startedAt.Equal(applied.startedAt) {
-			return fmt.Errorf("sing-box process changed while verifying config apply (pid %d -> %d)", applied.pid, current.pid)
+		current, err := currentServiceConfigEvidence(ctx, manager, expectedHash)
+		if err == nil {
+			if applied == nil {
+				applied = &current
+			} else if current.pid != applied.pid || !current.startedAt.Equal(applied.startedAt) {
+				return fmt.Errorf("sing-box process changed while verifying config apply (pid %d -> %d)", applied.pid, current.pid)
+			}
 		}
 		select {
 		case <-deadline.C:
 			// The timer firing is not evidence by itself. Perform one final
 			// complete read so a restart at the end of the stability window
 			// cannot be reported as success.
-			final, err := currentServiceConfigEvidence(ctx, expectedHash)
+			final, err := currentServiceConfigEvidence(ctx, manager, expectedHash)
 			if err != nil {
 				return err
+			}
+			if applied == nil {
+				return errors.New("sing-box service never became stable during config verification")
 			}
 			if final.pid != applied.pid || !final.startedAt.Equal(applied.startedAt) {
 				return fmt.Errorf("sing-box process changed at the end of config verification (pid %d -> %d)", applied.pid, final.pid)
@@ -273,18 +277,18 @@ func waitServiceStable(ctx context.Context, stableFor time.Duration, expectedHas
 	}
 }
 
-func currentServiceConfigEvidence(ctx context.Context, expectedHash [sha256.Size]byte) (serviceConfigEvidence, error) {
-	if !ServiceActive(ctx) {
+func currentServiceConfigEvidence(ctx context.Context, manager serviceManager, expectedHash [sha256.Size]byte) (serviceConfigEvidence, error) {
+	if !manager.Active(ctx) {
 		return serviceConfigEvidence{}, errors.New("sing-box service is not active after apply")
 	}
-	pid, err := serviceMainPID(ctx)
+	pid, err := manager.MainPID(ctx)
 	if err != nil {
 		return serviceConfigEvidence{}, fmt.Errorf("read sing-box main pid after apply: %w", err)
 	}
 	if pid <= 0 {
 		return serviceConfigEvidence{}, errors.New("sing-box service is active but has no main process")
 	}
-	startedAt, err := serviceStartTime(ctx)
+	startedAt, err := manager.StartedAt(ctx, pid)
 	if err != nil {
 		return serviceConfigEvidence{}, fmt.Errorf("read sing-box start time after apply: %w", err)
 	}
@@ -295,46 +299,6 @@ func currentServiceConfigEvidence(ctx context.Context, expectedHash [sha256.Size
 		return serviceConfigEvidence{}, err
 	}
 	return serviceConfigEvidence{pid: pid, startedAt: startedAt}, nil
-}
-
-// serviceMainPID returns systemd's MainPID for the fixed sing-box unit. It is
-// deliberately read through systemctl rather than inspecting /proc, because
-// systemd is the authority that owns the service lifecycle.
-func serviceMainPID(ctx context.Context) (int, error) {
-	out, err := run(ctx, "systemctl", "show", ServiceName, "--property=MainPID", "--value")
-	if err != nil {
-		return 0, fmt.Errorf("systemctl show MainPID: %w: %s", err, out)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(out))
-	if err != nil {
-		return 0, fmt.Errorf("invalid MainPID %q: %w", strings.TrimSpace(out), err)
-	}
-	return pid, nil
-}
-
-// serviceStartTime returns systemd's exact realtime start timestamp in
-// microseconds. busctl exposes the underlying uint64 without localized text or
-// the second-level truncation of `systemctl show`.
-func serviceStartTime(ctx context.Context) (time.Time, error) {
-	out, err := run(ctx, "busctl", "get-property", "org.freedesktop.systemd1", systemdUnitPath,
-		"org.freedesktop.systemd1.Service", "ExecMainStartTimestamp")
-	if err != nil {
-		return time.Time{}, fmt.Errorf("busctl get ExecMainStartTimestamp: %w: %s", err, out)
-	}
-	return parseSystemdTimestamp(out)
-}
-
-func parseSystemdTimestamp(out string) (time.Time, error) {
-	fields := strings.Fields(out)
-	if len(fields) != 2 || fields[0] != "t" {
-		return time.Time{}, fmt.Errorf("invalid ExecMainStartTimestamp %q", out)
-	}
-	micros, err := strconv.ParseUint(fields[1], 10, 64)
-	const maxInt64 = int64(^uint64(0) >> 1)
-	if err != nil || micros == 0 || micros > uint64(maxInt64/int64(time.Microsecond)) {
-		return time.Time{}, fmt.Errorf("invalid ExecMainStartTimestamp %q", out)
-	}
-	return time.Unix(0, int64(micros)*int64(time.Microsecond)), nil
 }
 
 func verifyManagedConfigFile(path string, expectedHash [sha256.Size]byte, serviceStartedAt time.Time) error {
@@ -425,7 +389,7 @@ func processArgsLoadManagedConfig(args []string) bool {
 	return false
 }
 
-func rollbackApply(hadOld bool, moved *strayMove, previous serviceState) error {
+func rollbackApply(manager serviceManager, hadOld bool, moved *strayMove, previous serviceState) error {
 	var errs []error
 	if hadOld {
 		if err := copyFile(bakConfigFile, ConfigFile); err != nil {
@@ -441,18 +405,14 @@ func rollbackApply(hadOld bool, moved *strayMove, previous serviceState) error {
 	}
 	rollbackCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	enableAction := "disable"
-	if previous.enabled {
-		enableAction = "enable"
-	}
-	if out, err := run(rollbackCtx, "systemctl", enableAction, ServiceName); err != nil {
-		errs = append(errs, fmt.Errorf("restore service enablement with %s: %w: %s", enableAction, err, out))
+	if out, err := manager.SetEnabled(rollbackCtx, previous.enabled); err != nil {
+		errs = append(errs, fmt.Errorf("restore service enablement: %w: %s", err, out))
 	}
 	action := "stop"
 	if previous.active {
 		action = "restart"
 	}
-	if out, err := run(rollbackCtx, "systemctl", action, ServiceName); err != nil {
+	if out, err := manager.Action(rollbackCtx, action); err != nil {
 		errs = append(errs, fmt.Errorf("restore service state with %s: %w: %s", action, err, out))
 	}
 	return errors.Join(errs...)

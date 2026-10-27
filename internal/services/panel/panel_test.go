@@ -553,6 +553,16 @@ func TestInstallCommandQuotesEveryArgument(t *testing.T) {
 	if got := shellQuote("a'b"); got != `'a'"'"'b'` {
 		t.Fatalf("shellQuote = %q", got)
 	}
+	for _, required := range []string{"wget -qO-", "sudo sh -s --", "doas sh -s --"} {
+		if !strings.Contains(command, required) {
+			t.Fatalf("install command missing Alpine/root fallback %q: %s", required, command)
+		}
+	}
+	cmd := exec.Command("sh", "-n")
+	cmd.Stdin = strings.NewReader(command)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("install command syntax: %v: %s", err, out)
+	}
 }
 
 func TestAgentInstallerVerifiesAndCanRollbackBinary(t *testing.T) {
@@ -568,7 +578,9 @@ func TestAgentInstallerVerifiesAndCanRollbackBinary(t *testing.T) {
 		"singbox-panel-agent.prev",
 		"/run/singbox-panel-agent.ready",
 		`restore_target "$CONFIG"`,
-		`restore_target "$UNIT"`,
+		`restore_target "$SERVICE_FILE"`,
+		"/etc/init.d/singbox-panel-agent",
+		"rc-service singbox-panel-agent status",
 	} {
 		if !strings.Contains(agentInstallScript, required) {
 			t.Fatalf("Agent installer missing %q", required)

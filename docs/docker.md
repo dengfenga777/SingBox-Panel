@@ -2,7 +2,7 @@
 
 项目默认使用[原生面板安装](../README.md#原生面板安装默认)。本页提供可选的 `docker run` 和 Docker Compose 两种方式，任选其一。
 
-Docker 只运行管理面板。每个被管理的 VPS 继续使用面板生成的安装命令部署原生 Agent，Agent 通过 WSS 主动连接面板，并由 systemd 管理该 VPS 上的 sing-box。即使节点与面板在同一台机器，也在宿主机上安装 Agent。
+Docker 只运行管理面板。每个被管理的 VPS 继续使用面板生成的安装命令部署原生 Agent，Agent 通过 WSS 主动连接面板，并由宿主机的 systemd 或 Alpine OpenRC 管理该 VPS 上的 sing-box。即使节点与面板在同一台机器，也在宿主机上安装 Agent。
 
 ## 部署前准备
 
@@ -137,9 +137,9 @@ location / {
 
 ## 节点接入
 
-在面板创建服务器，复制节点详情页生成的安装命令，在目标 VPS 的宿主机执行。目标 VPS 仍需 Linux amd64/arm64 和 systemd。面板镜像内同时包含两种架构的 Agent，镜像自身架构不会限制可管理的节点架构。
+在面板创建服务器，复制节点详情页生成的安装命令，在目标 VPS 的宿主机执行。目标 VPS 需为 Linux amd64/arm64，并运行 systemd 或 Alpine OpenRC。Alpine 最小系统可直接使用生成的命令：脚本会在 root 下执行，或通过 `sudo`/`doas` 提权，并自动补齐 `curl` 依赖；安装 sing-box 时保留默认的官方脚本方式。面板镜像内同时包含两种架构的 Agent，镜像自身架构不会限制可管理的节点架构。
 
-Agent 不进入容器，sing-box 的安装、启停、更新、配置下发、日志及流量采集仍走现有原生流程。节点不需开放额外管理端口。
+Agent 不进入容器，sing-box 的安装、启停、更新、配置下发、日志及流量采集仍走现有原生流程。systemd 节点从 journal 读取日志；Alpine/OpenRC 节点使用 `/var/log/sing-box.log`，Agent 本身写入 `/var/log/singbox-panel-agent.log`，两者应纳入节点现有的日志轮转策略。节点不需开放额外管理端口。
 
 ## 数据与备份
 

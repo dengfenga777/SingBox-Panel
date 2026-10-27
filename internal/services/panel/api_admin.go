@@ -500,8 +500,8 @@ func (a *App) installSingbox(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "output": res.Output})
 }
 
-// uninstallSingbox removes the remote sing-box package, binary and systemd
-// unit while preserving its configuration, Agent and panel-side node data.
+// uninstallSingbox removes the remote sing-box package, binary and host service
+// definition while preserving its configuration, Agent and panel-side node data.
 func (a *App) uninstallSingbox(c *gin.Context) {
 	id, ok := uintParam(c, "id")
 	if !ok {
@@ -537,8 +537,9 @@ func (a *App) uninstallSingbox(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "output": res.Output})
 }
 
-// uninstallAgent removes the Agent binary, configuration and systemd unit from
-// the controlled VPS while keeping the panel's node record and install command.
+// uninstallAgent removes the Agent binary, configuration and host service
+// definition from the controlled VPS while keeping the panel's node record and
+// install command.
 func (a *App) uninstallAgent(c *gin.Context) {
 	id, ok := uintParam(c, "id")
 	if !ok {

@@ -72,7 +72,7 @@ func (a *App) deleteLogSessionLocked(serverID uint, sessionID string) (logSessio
 
 // expireLogSession removes a browser lease that stopped renewing (tab crash,
 // network loss, mobile OS suspension). When it was the final viewer, stop the
-// Agent's single journalctl follower as well.
+// Agent's single native log follower as well.
 func (a *App) expireLogSession(serverID uint, sessionID string, deadline time.Time) {
 	unlockServer := a.logSessionLocks.lock(serverID)
 	defer unlockServer()
@@ -196,7 +196,7 @@ func (a *App) streamLogs(c *gin.Context) {
 		return
 	}
 
-	// The Agent owns one journalctl process, while several browser tabs may be
+	// The Agent owns one native log follower, while several browser tabs may be
 	// watching it. Serialize transitions for this server only; never hold the
 	// global state lock while waiting on a network round trip to the Agent.
 	unlockServer := a.logSessionLocks.lock(id)

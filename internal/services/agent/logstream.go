@@ -4,13 +4,12 @@ import (
 	"bufio"
 	"context"
 	"os/exec"
-	"strconv"
 	"sync"
 )
 
-// logStreamer manages a continuous journalctl -u sing-box -f subprocess per
-// agent session. The panel starts/stops it via CmdStreamLogs; each line is
-// pushed as an EvtLog event so the UI can display a live tail without polling.
+// logStreamer manages one continuous native log follower per Agent session. The
+// panel starts/stops it via CmdStreamLogs; each line is pushed as an EvtLog
+// event so the UI can display a live tail without polling.
 type logStreamer struct {
 	operationMu sync.Mutex
 	mu          sync.Mutex
@@ -51,9 +50,13 @@ func (ls *logStreamer) start(lines int, onLine func(string)) error {
 
 	streamCtx, cancel := context.WithCancel(context.Background())
 
-	cmd := exec.CommandContext(streamCtx, "journalctl", "-u", ServiceName,
-		"-n", strconv.Itoa(lines),
-		"-f", "--no-pager")
+	manager, err := currentServiceManager()
+	if err != nil {
+		cancel()
+		return err
+	}
+	command, args := manager.LogCommand(lines, true)
+	cmd := exec.CommandContext(streamCtx, command, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
@@ -77,7 +80,7 @@ func (ls *logStreamer) start(lines int, onLine func(string)) error {
 		for scanner.Scan() {
 			select {
 			case <-streamCtx.Done():
-				// Cancellation kills journalctl; leave the loop through the common
+				// Cancellation kills the follower; leave the loop through the common
 				// cleanup path so cmd.Wait always reaps it.
 				break
 			default:
@@ -87,8 +90,8 @@ func (ls *logStreamer) start(lines int, onLine func(string)) error {
 			}
 			onLine(scanner.Text())
 		}
-		// Scanner errors (including an oversized journal line) must terminate the
-		// follower. Always cancel and wait so no journalctl child is leaked.
+		// Scanner errors (including an oversized log line) must terminate the
+		// follower. Always cancel and wait so no log-follower child is leaked.
 		cancel()
 		_ = cmd.Wait()
 	}()
@@ -97,7 +100,7 @@ func (ls *logStreamer) start(lines int, onLine func(string)) error {
 }
 
 // finish only clears state for the stream that is still current. A replaced
-// journalctl goroutine can exit after its successor has started, and must not
+// follower goroutine can exit after its successor has started, and must not
 // mark that newer stream as stopped.
 func (ls *logStreamer) finish(generation uint64) {
 	ls.mu.Lock()

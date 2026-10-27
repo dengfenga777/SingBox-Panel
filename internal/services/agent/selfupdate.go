@@ -28,6 +28,7 @@ const (
 	agentUpgradeUnit     = "/etc/systemd/system/singbox-panel-agent-upgrade.service"
 	agentUpgradeScript   = "/run/singbox-panel-agent-upgrade.sh"
 	agentUpgradeUnitName = "singbox-panel-agent-upgrade.service"
+	agentUpgradePIDFile  = "/run/singbox-panel-agent-upgrade.pid"
 	agentUpdateStatus    = "/var/lib/singbox-panel-agent/update-status"
 
 	agentChecksumHeader = "X-SingBox-Panel-SHA256"
@@ -41,21 +42,53 @@ EXPECTED=/run/singbox-panel-agent.expected-sha256
 BIN=/usr/local/bin/singbox-panel-agent
 PREV=/usr/local/bin/singbox-panel-agent.prev
 STATUS=/var/lib/singbox-panel-agent/update-status
+PIDFILE=/run/singbox-panel-agent-upgrade.pid
+
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+  SERVICE_MANAGER=systemd
+else
+  SERVICE_MANAGER=openrc
+fi
+
+service_active() {
+  if [ "$SERVICE_MANAGER" = systemd ]; then
+    systemctl is-active --quiet singbox-panel-agent.service
+  else
+    rc-service singbox-panel-agent status >/dev/null 2>&1
+  fi
+}
+
+service_restart() {
+  if [ "$SERVICE_MANAGER" = systemd ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl restart singbox-panel-agent.service
+  else
+    rc-service singbox-panel-agent restart
+  fi
+}
+
+service_stop() {
+  if [ "$SERVICE_MANAGER" = systemd ]; then
+    systemctl stop singbox-panel-agent.service >/dev/null 2>&1 || true
+  else
+    rc-service singbox-panel-agent stop >/dev/null 2>&1 || true
+  fi
+}
+
 mkdir -p /var/lib/singbox-panel-agent
 rm -f "$READY"
-systemctl daemon-reload >/dev/null 2>&1 || true
-systemctl restart singbox-panel-agent.service >/dev/null 2>&1 || true
+service_restart >/dev/null 2>&1 || true
 
 i=0
 while [ "$i" -lt 30 ]; do
   expected_sha=$(cat "$EXPECTED" 2>/dev/null || true)
   ready_sha=$(sed -n '2p' "$READY" 2>/dev/null || true)
-  if systemctl is-active --quiet singbox-panel-agent.service && [ -n "$expected_sha" ] && [ "$ready_sha" = "$expected_sha" ]; then
+  if service_active && [ -n "$expected_sha" ] && [ "$ready_sha" = "$expected_sha" ]; then
     printf 'ok\n' > "$STATUS"
     rm -f "$PREV" "$EXPECTED"
     rm -f /etc/systemd/system/singbox-panel-agent-upgrade.service
-    rm -f /run/singbox-panel-agent-upgrade.sh
-    systemctl daemon-reload >/dev/null 2>&1 || true
+    rm -f /run/singbox-panel-agent-upgrade.sh "$PIDFILE"
+    if [ "$SERVICE_MANAGER" = systemd ]; then systemctl daemon-reload >/dev/null 2>&1 || true; fi
     exit 0
   fi
   i=$((i + 1))
@@ -63,9 +96,9 @@ while [ "$i" -lt 30 ]; do
 done
 
 printf 'rollback\n' > "$STATUS"
-systemctl stop singbox-panel-agent.service >/dev/null 2>&1 || true
+service_stop
 if [ -x "$PREV" ]; then
-	if mv -f "$PREV" "$BIN" && chmod 755 "$BIN" && systemctl restart singbox-panel-agent.service >/dev/null 2>&1; then
+	if mv -f "$PREV" "$BIN" && chmod 755 "$BIN" && service_restart >/dev/null 2>&1; then
 	  printf 'rollback-ok\n' > "$STATUS"
 	else
 	  printf 'rollback-failed\n' > "$STATUS"
@@ -74,8 +107,8 @@ else
   printf 'rollback-failed-no-previous-binary\n' > "$STATUS"
 fi
 rm -f /etc/systemd/system/singbox-panel-agent-upgrade.service
-rm -f /run/singbox-panel-agent-upgrade.sh "$EXPECTED"
-systemctl daemon-reload >/dev/null 2>&1 || true
+rm -f /run/singbox-panel-agent-upgrade.sh "$EXPECTED" "$PIDFILE"
+if [ "$SERVICE_MANAGER" = systemd ]; then systemctl daemon-reload >/dev/null 2>&1 || true; fi
 `
 
 const agentUpgradeUnitBody = `[Unit]
@@ -240,21 +273,36 @@ func validateAgentBinary(ctx context.Context, path string) (string, error) {
 }
 
 func scheduleAgentUpgrade(ctx context.Context) error {
+	manager, err := currentServiceManager()
+	if err != nil {
+		return err
+	}
 	if err := writeAtomicFile(agentUpgradeScript, []byte(agentUpgradeScriptBody), 0o700); err != nil {
 		return fmt.Errorf("prepare Agent upgrade script: %w", err)
 	}
-	if err := writeAtomicFile(agentUpgradeUnit, []byte(agentUpgradeUnitBody), 0o644); err != nil {
-		_ = os.Remove(agentUpgradeScript)
-		return fmt.Errorf("prepare Agent upgrade service: %w", err)
-	}
-	if out, err := run(ctx, "systemctl", "daemon-reload"); err != nil {
+	switch manager.Kind() {
+	case serviceKindSystemd:
+		if err := writeAtomicFile(agentUpgradeUnit, []byte(agentUpgradeUnitBody), 0o644); err != nil {
+			_ = os.Remove(agentUpgradeScript)
+			return fmt.Errorf("prepare Agent upgrade service: %w", err)
+		}
+		if out, err := manager.Prepare(ctx); err != nil {
+			cleanupAgentUpgradeFiles()
+			return fmt.Errorf("reload systemd for Agent upgrade: %w: %s", err, out)
+		}
+		if out, err := run(ctx, "systemctl", "--no-block", "start", agentUpgradeUnitName); err != nil {
+			cleanupAgentUpgradeFiles()
+			_, _ = manager.Prepare(context.Background())
+			return fmt.Errorf("start Agent upgrade service: %w: %s", err, out)
+		}
+	case serviceKindOpenRC:
+		if err := launchOpenRCDetachedShell(ctx, agentUpgradeScript, agentUpgradePIDFile); err != nil {
+			cleanupAgentUpgradeFiles()
+			return err
+		}
+	default:
 		cleanupAgentUpgradeFiles()
-		return fmt.Errorf("reload systemd for Agent upgrade: %w: %s", err, out)
-	}
-	if out, err := run(ctx, "systemctl", "--no-block", "start", agentUpgradeUnitName); err != nil {
-		cleanupAgentUpgradeFiles()
-		_, _ = run(context.Background(), "systemctl", "daemon-reload")
-		return fmt.Errorf("start Agent upgrade service: %w: %s", err, out)
+		return fmt.Errorf("unsupported service manager %q", manager.Kind())
 	}
 	return nil
 }
@@ -262,6 +310,7 @@ func scheduleAgentUpgrade(ctx context.Context) error {
 func cleanupAgentUpgradeFiles() {
 	_ = os.Remove(agentUpgradeUnit)
 	_ = os.Remove(agentUpgradeScript)
+	_ = os.Remove(agentUpgradePIDFile)
 }
 
 func restorePreviousAgent() error {

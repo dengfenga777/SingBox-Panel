@@ -39,7 +39,13 @@ func TestValidateAgentBinary(t *testing.T) {
 }
 
 func TestUpgradeWatchdogKeepsSingboxUntouched(t *testing.T) {
-	for _, required := range []string{agentPreviousBinary, agentReadyFile, agentExpectedSHAFile, "systemctl restart singbox-panel-agent.service"} {
+	for _, required := range []string{
+		agentPreviousBinary,
+		agentReadyFile,
+		agentExpectedSHAFile,
+		"systemctl restart singbox-panel-agent.service",
+		"rc-service singbox-panel-agent restart",
+	} {
 		if !strings.Contains(agentUpgradeScriptBody, required) {
 			t.Fatalf("upgrade watchdog missing %q", required)
 		}

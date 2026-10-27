@@ -11,6 +11,8 @@ func TestUninstallSingboxUsesPersistentTransactionalBackup(t *testing.T) {
 		"/var/lib/singbox-panel-agent/.singbox-uninstall.",
 		`if [ "$committed" != "1" ]`,
 		`systemctl is-active --quiet sing-box.service`,
+		`rc-service sing-box status`,
+		`rc-update del sing-box default`,
 		`cp -a "$backup_root/config/." /etc/sing-box/`,
 		`恢复副本保留在 $backup_root`,
 	} {
